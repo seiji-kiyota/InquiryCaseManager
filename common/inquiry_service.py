@@ -226,3 +226,91 @@ def search_inquiries(filters=None, db_path=None, today=None):
     if filters.get("overdue_only"):
         results = [row for row in results if row["overdue"]]
     return results
+
+
+def get_inquiry_by_id(inquiry_id, db_path=None, today=None):
+    """問い合わせIDで1件取得する。存在しない場合は None。"""
+    current_id = _text(inquiry_id)
+    if not current_id:
+        return None
+
+    conn = get_connection(db_path)
+    try:
+        row = conn.execute(
+            "SELECT * FROM inquiries WHERE inquiry_id = ?",
+            (current_id,),
+        ).fetchone()
+    finally:
+        conn.close()
+
+    if row is None:
+        return None
+
+    item = dict(row)
+    item["overdue"] = is_overdue(item.get("due_date"), item.get("status"), today=today)
+    return item
+
+
+def update_inquiry(inquiry_id, data, db_path=None, now=None):
+    """問い合わせを更新し、問い合わせIDを返す。存在しない場合は None。"""
+    existing = get_inquiry_by_id(inquiry_id, db_path=db_path)
+    if existing is None:
+        return None
+
+    payload = dict(data or {})
+    payload["received_date"] = existing["received_date"]
+    errors = validate_inquiry(payload)
+    if errors:
+        raise ValueError("\n".join(errors))
+
+    timestamp = (now or datetime.now()).strftime("%Y-%m-%d %H:%M:%S")
+    assignee = _text(payload.get("assignee")) or UNASSIGNED_ASSIGNEE
+
+    conn = get_connection(db_path)
+    try:
+        conn.execute(
+            """
+            UPDATE inquiries
+            SET
+                customer_name = ?,
+                company_name = ?,
+                phone = ?,
+                email = ?,
+                channel = ?,
+                category = ?,
+                subject = ?,
+                description = ?,
+                priority = ?,
+                assignee = ?,
+                due_date = ?,
+                status = ?,
+                notes = ?,
+                updated_at = ?
+            WHERE inquiry_id = ?
+            """,
+            (
+                _text(payload.get("customer_name")),
+                _text(payload.get("company_name")),
+                _text(payload.get("phone")),
+                _text(payload.get("email")),
+                _text(payload.get("channel")),
+                _text(payload.get("category")),
+                _text(payload.get("subject")),
+                _text(payload.get("description")),
+                _text(payload.get("priority")),
+                assignee,
+                _date_text(payload.get("due_date")),
+                _text(payload.get("status")),
+                _text(payload.get("notes")),
+                timestamp,
+                existing["inquiry_id"],
+            ),
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+    return existing["inquiry_id"]

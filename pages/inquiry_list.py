@@ -4,6 +4,7 @@ import streamlit as st
 
 from common.inquiry_service import count_inquiries, search_inquiries
 from common.models import ASSIGNEES, CATEGORIES, INQUIRY_STATUSES, PRIORITIES
+from pages.inquiry_detail import render_inquiry_detail
 
 FILTER_VERSION_KEY = "inquiry_list_filter_version"
 
@@ -102,3 +103,16 @@ def render_inquiry_list():
         width="stretch",
         column_order=LIST_COLUMNS,
     )
+
+    st.divider()
+    inquiry_ids = [item["inquiry_id"] for item in inquiries]
+    selected_id = st.selectbox(
+        "詳細表示する問い合わせ",
+        inquiry_ids,
+        index=None,
+        placeholder="選択してください",
+    )
+    direct_id = st.text_input("問い合わせIDを直接指定", placeholder="INQ-YYYYMM-0001")
+    target_id = (direct_id or "").strip() or selected_id
+    if target_id:
+        render_inquiry_detail(target_id)
