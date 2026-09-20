@@ -5,9 +5,9 @@
 問い合わせ受付から案件化・進捗管理までを一元管理する業務支援デモアプリです。  
 受付、対応履歴、案件完了、KPI集計、CSV / Excel出力までの一連の流れを Streamlit 上で確認できます。
 
-## デモ
+## Demo
 
-Demo: （公開後URLを追記）
+[Streamlit Community Cloud でデモを開く](https://inquirycasemanager-demo.streamlit.app)
 
 ## 主な機能
 
@@ -59,7 +59,7 @@ python -m pytest -q
 2. [Streamlit Community Cloud](https://share.streamlit.io/) に GitHub アカウントでログインする
 3. New app からリポジトリ・ブランチ `main`・Main file `app.py` を選ぶ
 4. Deploy する
-5. 発行されたURLを、このREADMEの Demo 欄に追記する
+5. 公開URLは上記 Demo 欄を参照する
 
 ## 注意事項
 
