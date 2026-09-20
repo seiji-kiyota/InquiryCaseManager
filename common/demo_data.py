@@ -1,29 +1,49 @@
 """公開デモ用サンプルデータの投入。"""
 
+import sqlite3
 from datetime import date, datetime, time, timedelta
 
-from common.case_service import count_cases, create_case_from_inquiry, get_case_by_id, update_case
-from common.db import get_connection
-from common.history_service import create_history
-from common.inquiry_service import count_inquiries, create_inquiry, get_inquiry_by_id, update_inquiry
-from common.models import INQUIRY_TARGET_TYPE
+from common.case_service import generate_case_id
+from common.db import get_db_path
+from common.history_service import create_history, create_status_change_history
+from common.inquiry_service import generate_inquiry_id
+from common.models import CASE_COMPLETED_STATUS, UNASSIGNED_ASSIGNEE
 
 DEMO_NOTES = "デモ用サンプルデータ"
 
 
+def _open_seed_connection(db_path=None):
+    path = get_db_path(db_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(path, timeout=30.0, isolation_level=None)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def _count_on_conn(conn, table_name):
+    return conn.execute(f"SELECT COUNT(*) AS n FROM {table_name}").fetchone()["n"]
+
+
+def _is_empty_on_conn(conn):
+    return (
+        _count_on_conn(conn, "inquiries") == 0
+        and _count_on_conn(conn, "cases") == 0
+        and _count_on_conn(conn, "histories") == 0
+    )
+
+
 def is_database_empty(db_path=None):
     """問い合わせ・案件・履歴がすべて0件なら True。"""
-    conn = get_connection(db_path)
+    conn = _open_seed_connection(db_path)
     try:
-        history_count = conn.execute("SELECT COUNT(*) AS n FROM histories").fetchone()["n"]
+        return _is_empty_on_conn(conn)
     finally:
         conn.close()
-    return count_inquiries(db_path=db_path) == 0 and count_cases(db_path=db_path) == 0 and history_count == 0
 
 
 def has_demo_data(db_path=None):
     """デモ用サンプルデータが登録済みなら True。"""
-    conn = get_connection(db_path)
+    conn = _open_seed_connection(db_path)
     try:
         count = conn.execute(
             "SELECT COUNT(*) AS n FROM inquiries WHERE notes = ?",
@@ -36,10 +56,21 @@ def has_demo_data(db_path=None):
 
 def seed_demo_data_if_empty(db_path=None, today=None):
     """空DBのときだけサンプルデータを投入する。投入したら True。"""
-    if not is_database_empty(db_path=db_path):
-        return False
-    _seed_demo_data(db_path=db_path, today=today or date.today())
-    return True
+    today = today or date.today()
+    conn = _open_seed_connection(db_path)
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        if not _is_empty_on_conn(conn):
+            conn.execute("COMMIT")
+            return False
+        _seed_demo_data(conn, today)
+        conn.execute("COMMIT")
+        return True
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+    finally:
+        conn.close()
 
 
 def _day(today, offset):
@@ -48,6 +79,22 @@ def _day(today, offset):
 
 def _at(today, offset, hour=10, minute=0):
     return datetime.combine(_day(today, offset), time(hour, minute, 0))
+
+
+def _date_text(value):
+    if value is None or value == "":
+        return ""
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    return str(value).strip()[:10]
+
+
+def _time_text(value):
+    if isinstance(value, time):
+        return value.strftime("%H:%M:%S")
+    return str(value).strip()
 
 
 def _inquiry_payload(today, spec):
@@ -71,55 +118,76 @@ def _inquiry_payload(today, spec):
     }
 
 
-def _inquiry_update(row, **overrides):
-    payload = {
-        key: row[key]
-        for key in (
-            "customer_name",
-            "company_name",
-            "phone",
-            "email",
-            "channel",
-            "category",
-            "subject",
-            "description",
-            "priority",
-            "assignee",
-            "due_date",
-            "status",
-            "notes",
-        )
-    }
-    payload.update(overrides)
-    return payload
+def _insert_inquiry(conn, today, spec):
+    payload = _inquiry_payload(today, spec)
+    received_date = _date_text(payload["received_date"])
+    inquiry_id = generate_inquiry_id(payload["received_date"], conn=conn)
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    conn.execute(
+        """
+        INSERT INTO inquiries (
+            inquiry_id, received_date, received_time, customer_name, company_name,
+            phone, email, channel, category, subject, description, priority,
+            assignee, due_date, status, notes, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            inquiry_id,
+            received_date,
+            _time_text(payload["received_time"]),
+            payload["customer_name"],
+            payload["company_name"],
+            payload["phone"],
+            payload["email"],
+            payload["channel"],
+            payload["category"],
+            payload["subject"],
+            payload["description"],
+            payload["priority"],
+            payload["assignee"] or UNASSIGNED_ASSIGNEE,
+            _date_text(payload["due_date"]),
+            "未対応",
+            DEMO_NOTES,
+            now,
+            now,
+        ),
+    )
+    return inquiry_id
 
 
-def _case_update(case, **overrides):
-    payload = {
-        "case_name": case["case_name"],
-        "customer_name": case["customer_name"],
-        "assignee": case["assignee"],
-        "sub_assignee": case["sub_assignee"],
-        "priority": case["priority"],
-        "status": case["status"],
-        "progress": case["progress"],
-        "start_date": case["start_date"],
-        "due_date": case["due_date"],
-        "completed_date": case["completed_date"],
-        "summary": case["summary"],
-        "action_plan": case["action_plan"],
-        "notes": case["notes"],
-    }
-    payload.update(overrides)
-    return payload
+def _set_inquiry_status(conn, inquiry_id, spec, today):
+    target_status = spec["status"]
+    if target_status == "未対応":
+        return
+    when = _at(
+        today,
+        spec.get("complete_offset", spec["received_offset"] + 2)
+        if target_status == "完了"
+        else spec["received_offset"] + 1,
+    )
+    timestamp = when.strftime("%Y-%m-%d %H:%M:%S")
+    conn.execute(
+        "UPDATE inquiries SET status = ?, updated_at = ? WHERE inquiry_id = ?",
+        (target_status, timestamp, inquiry_id),
+    )
+    create_status_change_history(
+        inquiry_id,
+        "未対応",
+        target_status,
+        spec["assignee"] or UNASSIGNED_ASSIGNEE,
+        action_datetime=when,
+        conn=conn,
+        now=when,
+    )
 
 
-def _add_history(db_path, inquiry_id, spec, today):
+def _add_history(conn, inquiry_id, spec, today):
+    when = _at(today, spec["offset"], spec.get("hour", 14))
     create_history(
         {
-            "target_type": INQUIRY_TARGET_TYPE,
+            "target_type": "問い合わせ",
             "target_id": inquiry_id,
-            "action_datetime": _at(today, spec["offset"], spec.get("hour", 14)),
+            "action_datetime": when,
             "operator": spec["operator"],
             "action_type": spec["action_type"],
             "action_detail": spec["action_detail"],
@@ -127,13 +195,66 @@ def _add_history(db_path, inquiry_id, spec, today):
                 "" if spec.get("next_offset") is None else _day(today, spec["next_offset"])
             ),
         },
-        db_path=db_path,
-        now=_at(today, spec["offset"], spec.get("hour", 14)),
+        conn=conn,
+        now=when,
     )
 
 
-def _seed_demo_data(db_path, today):
-    specs = (
+def _insert_case(conn, inquiry_id, today):
+    inquiry = conn.execute(
+        "SELECT * FROM inquiries WHERE inquiry_id = ?",
+        (inquiry_id,),
+    ).fetchone()
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    case_id = generate_case_id(today, conn=conn)
+    conn.execute(
+        """
+        INSERT INTO cases (
+            case_id, inquiry_id, case_name, customer_name, assignee, sub_assignee,
+            priority, status, progress, start_date, due_date, completed_date,
+            summary, action_plan, notes, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            case_id,
+            inquiry["inquiry_id"],
+            inquiry["subject"],
+            inquiry["customer_name"],
+            inquiry["assignee"] or UNASSIGNED_ASSIGNEE,
+            "",
+            inquiry["priority"],
+            "未着手",
+            0,
+            _date_text(today),
+            inquiry["due_date"] or "",
+            "",
+            inquiry["description"],
+            "",
+            "",
+            timestamp,
+            timestamp,
+        ),
+    )
+    return case_id
+
+
+def _set_case_status(conn, case_id, convert, today):
+    status = convert["status"]
+    progress = 100 if status == CASE_COMPLETED_STATUS else convert["progress"]
+    completed_date = _date_text(today) if status == CASE_COMPLETED_STATUS else ""
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    conn.execute(
+        """
+        UPDATE cases
+        SET status = ?, progress = ?, completed_date = ?, updated_at = ?
+        WHERE case_id = ?
+        """,
+        (status, progress, completed_date, timestamp, case_id),
+    )
+
+
+def _demo_specs():
+    return (
         {
             "received_offset": -20,
             "due_offset": -10,
@@ -356,34 +477,16 @@ def _seed_demo_data(db_path, today):
         },
     )
 
-    created = {}
-    for spec in specs:
-        inquiry_id = create_inquiry(_inquiry_payload(today, spec), db_path=db_path)
-        created[spec["subject"]] = inquiry_id
-        row = get_inquiry_by_id(inquiry_id, db_path=db_path)
-        target_status = spec["status"]
-        if target_status != "未対応":
-            complete_offset = spec.get("complete_offset", spec["received_offset"] + 2)
-            update_inquiry(
-                inquiry_id,
-                _inquiry_update(row, status=target_status),
-                db_path=db_path,
-                now=_at(today, complete_offset if target_status == "完了" else spec["received_offset"] + 1),
-            )
-            row = get_inquiry_by_id(inquiry_id, db_path=db_path)
-        for history in spec.get("histories") or ():
-            _add_history(db_path, inquiry_id, history, today)
 
+def _seed_demo_data(conn, today):
+    for spec in _demo_specs():
+        inquiry_id = _insert_inquiry(conn, today, spec)
+        _set_inquiry_status(conn, inquiry_id, spec, today)
+        for history in spec.get("histories") or ():
+            _add_history(conn, inquiry_id, history, today)
         convert = spec.get("convert")
         if not convert:
             continue
-        case_id = create_case_from_inquiry(inquiry_id, db_path=db_path, today=today)
-        if convert == "overdue" or case_id is None:
-            continue
-        case = get_case_by_id(case_id, db_path=db_path, today=today)
-        update_case(
-            case_id,
-            _case_update(case, status=convert["status"], progress=convert["progress"]),
-            db_path=db_path,
-            today=today,
-        )
+        case_id = _insert_case(conn, inquiry_id, today)
+        if convert != "overdue":
+            _set_case_status(conn, case_id, convert, today)

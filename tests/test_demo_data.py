@@ -1,3 +1,4 @@
+import threading
 from datetime import date
 
 from common.case_service import count_cases, get_case_by_id, search_cases
@@ -49,9 +50,36 @@ def test_seed_is_not_duplicated(tmp_path):
     histories = _history_count(db_path)
 
     assert seed_demo_data_if_empty(db_path=db_path, today=TODAY) is False
-    assert count_inquiries(db_path=db_path) == inquiries
-    assert count_cases(db_path=db_path) == cases
-    assert _history_count(db_path) == histories
+    assert count_inquiries(db_path=db_path) == inquiries == 12
+    assert count_cases(db_path=db_path) == cases == 8
+    assert _history_count(db_path) == histories == 13
+
+
+def test_concurrent_seed_runs_once(tmp_path):
+    db_path = _setup(tmp_path)
+    barrier = threading.Barrier(2)
+    results = []
+    errors = []
+
+    def worker():
+        try:
+            barrier.wait(timeout=5)
+            results.append(seed_demo_data_if_empty(db_path=db_path, today=TODAY))
+        except Exception as error:
+            errors.append(error)
+
+    threads = [threading.Thread(target=worker) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert errors == []
+    assert results.count(True) == 1
+    assert results.count(False) == 1
+    assert count_inquiries(db_path=db_path) == 12
+    assert count_cases(db_path=db_path) == 8
+    assert _history_count(db_path) == 13
 
 
 def test_existing_data_is_not_seeded(tmp_path):
