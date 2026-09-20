@@ -1,10 +1,21 @@
-"""問い合わせのID採番と登録。"""
+"""問い合わせのID採番、登録、一覧検索。"""
 
-from datetime import datetime, time
+from datetime import date, datetime, time
 
 from common.db import get_connection
 from common.models import UNASSIGNED_ASSIGNEE
 from common.validators import parse_date, validate_inquiry
+
+COMPLETED_STATUS = "完了"
+FREEWORD_COLUMNS = (
+    "inquiry_id",
+    "customer_name",
+    "company_name",
+    "subject",
+    "description",
+    "phone",
+    "email",
+)
 
 
 def _text(value):
@@ -125,3 +136,93 @@ def create_inquiry(data, db_path=None):
         raise
     finally:
         conn.close()
+
+
+def is_overdue(due_date, status, today=None):
+    """対応期限切れかつ未完了なら True。期限未設定は False。"""
+    parsed_due = parse_date(due_date)
+    if parsed_due is None:
+        return False
+    if _text(status) == COMPLETED_STATUS:
+        return False
+    current_day = today if today is not None else date.today()
+    return parsed_due < current_day
+
+
+def count_inquiries(db_path=None):
+    """登録済み問い合わせの総件数を返す。"""
+    conn = get_connection(db_path)
+    try:
+        return conn.execute("SELECT COUNT(*) AS n FROM inquiries").fetchone()["n"]
+    finally:
+        conn.close()
+
+
+def get_inquiries(db_path=None, today=None):
+    """全件を受付日降順で返す。"""
+    return search_inquiries(db_path=db_path, today=today)
+
+
+def search_inquiries(filters=None, db_path=None, today=None):
+    """条件で問い合わせを検索し、overdue フラグを付与して返す。"""
+    filters = filters or {}
+    current_day = today if today is not None else date.today()
+    conditions = []
+    params = []
+
+    keyword = _text(filters.get("keyword"))
+    if keyword:
+        like = f"%{keyword}%"
+        placeholders = " OR ".join(f"{column} LIKE ?" for column in FREEWORD_COLUMNS)
+        conditions.append(f"({placeholders})")
+        params.extend([like] * len(FREEWORD_COLUMNS))
+
+    customer_name = _text(filters.get("customer_name"))
+    if customer_name:
+        conditions.append("customer_name LIKE ?")
+        params.append(f"%{customer_name}%")
+
+    date_from = _date_text(filters.get("received_date_from"))
+    if date_from:
+        conditions.append("received_date >= ?")
+        params.append(date_from)
+
+    date_to = _date_text(filters.get("received_date_to"))
+    if date_to:
+        conditions.append("received_date <= ?")
+        params.append(date_to)
+
+    for column, key in (
+        ("category", "categories"),
+        ("assignee", "assignees"),
+        ("priority", "priorities"),
+        ("status", "statuses"),
+    ):
+        values = [_text(value) for value in (filters.get(key) or []) if _text(value)]
+        if values:
+            placeholders = ", ".join("?" for _ in values)
+            conditions.append(f"{column} IN ({placeholders})")
+            params.extend(values)
+
+    where_sql = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+    sql = f"""
+        SELECT *
+        FROM inquiries
+        {where_sql}
+        ORDER BY received_date DESC, received_time DESC, inquiry_id DESC
+    """
+
+    conn = get_connection(db_path)
+    try:
+        rows = [dict(row) for row in conn.execute(sql, params).fetchall()]
+    finally:
+        conn.close()
+
+    results = []
+    for row in rows:
+        row["overdue"] = is_overdue(row.get("due_date"), row.get("status"), today=current_day)
+        results.append(row)
+
+    if filters.get("overdue_only"):
+        results = [row for row in results if row["overdue"]]
+    return results
