@@ -1,6 +1,7 @@
 import streamlit as st
 
 from common.db import init_db
+from pages.case_list import render_case_list
 from pages.inquiry_list import render_inquiry_list
 from pages.inquiry_register import render_inquiry_register
 
@@ -26,6 +27,8 @@ if selected_menu == "問い合わせ登録":
     render_inquiry_register()
 elif selected_menu == "問い合わせ一覧":
     render_inquiry_list()
+elif selected_menu == "案件一覧":
+    render_case_list()
 else:
     st.subheader(selected_menu)
     st.info("この機能は今後実装予定です")

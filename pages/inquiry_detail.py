@@ -4,6 +4,7 @@ from datetime import datetime
 
 import streamlit as st
 
+from common.case_service import create_case_from_inquiry, get_case_by_inquiry_id
 from common.history_service import create_history, get_histories_by_target
 from common.inquiry_service import get_inquiry_by_id, update_inquiry
 from common.models import (
@@ -22,6 +23,7 @@ EDIT_MODE_KEY = "inquiry_detail_edit_id"
 SUCCESS_ID_KEY = "inquiry_detail_success_id"
 HISTORY_FORM_VERSION_KEY = "inquiry_history_form_version"
 HISTORY_SUCCESS_KEY = "inquiry_history_success_id"
+CASE_SUCCESS_KEY = "inquiry_convert_success_id"
 
 HISTORY_COLUMNS = (
     "対応日時",
@@ -163,12 +165,34 @@ def render_inquiry_detail(inquiry_id):
         st.success("問い合わせを更新しました。")
         st.info(f"問い合わせID：{success_id}")
 
+    converted_case_id = st.session_state.pop(CASE_SUCCESS_KEY, None)
+    if converted_case_id:
+        st.success("問い合わせを案件化しました。")
+        st.info(f"案件ID：{converted_case_id}")
+
     editing = st.session_state.get(EDIT_MODE_KEY) == inquiry["inquiry_id"]
     if not editing:
         _show_readonly(inquiry)
-        if st.button("編集", key=f"inquiry_edit_button_{inquiry['inquiry_id']}"):
-            st.session_state[EDIT_MODE_KEY] = inquiry["inquiry_id"]
-            st.rerun()
+        existing_case = get_case_by_inquiry_id(inquiry["inquiry_id"])
+        action_col, convert_col = st.columns(2)
+        with action_col:
+            if st.button("編集", key=f"inquiry_edit_button_{inquiry['inquiry_id']}"):
+                st.session_state[EDIT_MODE_KEY] = inquiry["inquiry_id"]
+                st.rerun()
+        with convert_col:
+            if existing_case:
+                st.info(f"この問い合わせは案件化済みです。案件ID：{existing_case['case_id']}")
+            elif st.button("案件化", key=f"inquiry_convert_button_{inquiry['inquiry_id']}"):
+                try:
+                    case_id = create_case_from_inquiry(inquiry["inquiry_id"])
+                except ValueError as error:
+                    st.warning(str(error))
+                else:
+                    if case_id is None:
+                        st.warning("対象の問い合わせが見つかりません。")
+                    else:
+                        st.session_state[CASE_SUCCESS_KEY] = case_id
+                        st.rerun()
     else:
         st.caption(f"問い合わせID：{inquiry['inquiry_id']}")
         st.caption(f"受付日：{inquiry['received_date']}　受付時刻：{inquiry['received_time']}")
