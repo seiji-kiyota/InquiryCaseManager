@@ -3,6 +3,7 @@
 import plotly.express as px
 import streamlit as st
 
+from common.demo_data import has_demo_data
 from common.dashboard_service import (
     count_cases_by_status,
     count_inquiries_by_assignee,
@@ -120,3 +121,6 @@ def render_dashboard():
 
     st.markdown("###### 月別完了件数")
     _line_chart(get_monthly_completion_counts(), "年月")
+
+    if has_demo_data():
+        st.caption("デモ用サンプルデータを使用しています。このアプリはデモ用途です。")

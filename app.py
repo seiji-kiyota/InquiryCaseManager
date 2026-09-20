@@ -1,6 +1,9 @@
+import os
+
 import streamlit as st
 
 from common.db import init_db
+from common.demo_data import seed_demo_data_if_empty
 from pages.case_list import render_case_list
 from pages.dashboard import render_dashboard
 from pages.inquiry_list import render_inquiry_list
@@ -10,6 +13,8 @@ from pages.ui import render_page_header
 st.set_page_config(page_title="問い合わせ・案件管理ツール", layout="wide")
 
 init_db()
+if not os.environ.get("PYTEST_CURRENT_TEST"):
+    seed_demo_data_if_empty()
 
 MENU_ITEMS = (
     "ダッシュボード",
