@@ -2,6 +2,7 @@ import streamlit as st
 
 from common.db import init_db
 from pages.case_list import render_case_list
+from pages.dashboard import render_dashboard
 from pages.inquiry_list import render_inquiry_list
 from pages.inquiry_register import render_inquiry_register
 
@@ -23,7 +24,9 @@ selected_menu = st.sidebar.radio("画面選択", MENU_ITEMS)
 
 st.title("問い合わせ・案件管理ツール")
 
-if selected_menu == "問い合わせ登録":
+if selected_menu == "ダッシュボード":
+    render_dashboard()
+elif selected_menu == "問い合わせ登録":
     render_inquiry_register()
 elif selected_menu == "問い合わせ一覧":
     render_inquiry_list()
