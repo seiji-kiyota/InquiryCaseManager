@@ -13,6 +13,7 @@ from common.dashboard_service import (
     get_monthly_completion_counts,
     get_monthly_inquiry_counts,
 )
+from pages.ui import render_page_header, render_section
 
 EMPTY_CHART_MESSAGE = "表示するデータがありません"
 
@@ -53,64 +54,69 @@ def _line_chart(rows, x_title):
 
 
 def render_dashboard():
-    st.subheader("ダッシュボード")
+    render_page_header(
+        "ダッシュボード",
+        "問い合わせと案件の件数・完了率・期限超過、および集計グラフを確認できます。",
+    )
 
     inquiry_kpis = get_inquiry_kpis()
     case_kpis = get_case_kpis()
 
-    st.markdown("#### 問い合わせKPI")
+    render_section("問い合わせKPI")
     _show_metrics(
         (
             ("総問い合わせ件数", inquiry_kpis["total"]),
-            ("未対応件数", inquiry_kpis["未対応"]),
-            ("対応中件数", inquiry_kpis["対応中"]),
-            ("保留件数", inquiry_kpis["保留"]),
+            ("未対応", inquiry_kpis["未対応"]),
+            ("対応中", inquiry_kpis["対応中"]),
+            ("保留", inquiry_kpis["保留"]),
         )
     )
     _show_metrics(
         (
-            ("完了件数", inquiry_kpis["完了"]),
-            ("問い合わせ完了率", f"{inquiry_kpis['completion_rate']:.1f}%"),
-            ("問い合わせ期限超過件数", inquiry_kpis["overdue"]),
+            ("完了", inquiry_kpis["完了"]),
+            ("完了率", f"{inquiry_kpis['completion_rate']:.1f}%"),
+            ("期限超過", inquiry_kpis["overdue"]),
         )
     )
 
-    st.markdown("#### 案件KPI")
+    st.divider()
+    render_section("案件KPI")
     _show_metrics(
         (
             ("総案件数", case_kpis["total"]),
-            ("未着手件数", case_kpis["未着手"]),
-            ("対応中件数", case_kpis["対応中"]),
-            ("保留件数", case_kpis["保留"]),
+            ("未着手", case_kpis["未着手"]),
+            ("対応中", case_kpis["対応中"]),
+            ("保留", case_kpis["保留"]),
         )
     )
     _show_metrics(
         (
-            ("完了件数", case_kpis["完了"]),
-            ("案件完了率", f"{case_kpis['completion_rate']:.1f}%"),
-            ("案件期限超過件数", case_kpis["overdue"]),
+            ("完了", case_kpis["完了"]),
+            ("完了率", f"{case_kpis['completion_rate']:.1f}%"),
+            ("期限超過", case_kpis["overdue"]),
         )
     )
 
-    st.markdown("#### 集計グラフ")
+    st.divider()
+    render_section("集計グラフ")
     col1, col2 = st.columns(2)
     with col1:
-        st.markdown("##### 問い合わせステータス別")
+        st.markdown("###### 問い合わせステータス別")
         _bar_chart(count_inquiries_by_status(), "ステータス")
     with col2:
-        st.markdown("##### 問い合わせ優先度別")
+        st.markdown("###### 問い合わせ優先度別")
         _bar_chart(count_inquiries_by_priority(), "優先度")
 
     col3, col4 = st.columns(2)
     with col3:
-        st.markdown("##### 問い合わせ担当者別")
+        st.markdown("###### 問い合わせ担当者別")
         _bar_chart(count_inquiries_by_assignee(), "担当者")
     with col4:
-        st.markdown("##### 案件ステータス別")
+        st.markdown("###### 案件ステータス別")
         _bar_chart(count_cases_by_status(), "ステータス")
 
-    st.markdown("##### 月別問い合わせ件数")
+    st.markdown("###### 月別問い合わせ件数")
     _line_chart(get_monthly_inquiry_counts(), "年月")
 
-    st.markdown("##### 月別完了件数")
+    st.markdown("###### 月別完了件数")
     _line_chart(get_monthly_completion_counts(), "年月")

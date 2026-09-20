@@ -1,17 +1,12 @@
 """案件一覧・検索画面。"""
 
-from datetime import datetime
-
 import streamlit as st
 
 from common.case_service import count_cases, search_cases
-from common.export_service import (
-    create_case_csv_bytes,
-    create_case_excel_bytes,
-    generate_export_filename,
-)
+from common.export_service import create_case_csv_bytes, create_case_excel_bytes
 from common.models import ASSIGNEES, CASE_STATUSES, PRIORITIES
 from pages.case_detail import render_case_detail
+from pages.ui import overdue_label, render_export_buttons, render_page_header, render_section
 
 FILTER_VERSION_KEY = "case_list_filter_version"
 
@@ -25,7 +20,7 @@ LIST_COLUMNS = (
     "進捗率",
     "ステータス",
     "開始日",
-    "期限",
+    "対応期限",
     "期限超過",
 )
 
@@ -39,23 +34,27 @@ def _to_display_rows(cases):
             "顧客名": item["customer_name"],
             "担当者": item["assignee"],
             "優先度": item["priority"],
-            "進捗率": item["progress"],
+            "進捗率": f"{item['progress']}%",
             "ステータス": item["status"],
             "開始日": item["start_date"],
-            "期限": item["due_date"] or "",
-            "期限超過": "期限超過" if item["overdue"] else "",
+            "対応期限": item["due_date"] or "",
+            "期限超過": overdue_label(item["overdue"]),
         }
         for item in cases
     ]
 
 
 def render_case_list():
-    st.subheader("案件一覧")
+    render_page_header(
+        "案件一覧",
+        "検索・絞り込み結果を一覧表示します。詳細表示やCSV / Excel出力ができます。",
+    )
 
     if FILTER_VERSION_KEY not in st.session_state:
         st.session_state[FILTER_VERSION_KEY] = 0
 
     prefix = f"case_list_{st.session_state[FILTER_VERSION_KEY]}_"
+    render_section("検索条件")
     col1, col2 = st.columns(2)
     with col1:
         keyword = st.text_input("フリーワード", key=f"{prefix}keyword")
@@ -79,8 +78,16 @@ def render_case_list():
     cases = search_cases(filters)
     total_count = count_cases()
 
-    st.write(f"検索結果：{len(cases)}件")
-    _show_export_buttons(cases)
+    st.divider()
+    render_section("検索結果")
+    st.write(f"検索結果：{len(cases)}件（登録件数：{total_count}件）")
+    render_export_buttons(
+        cases,
+        prefix="cases",
+        create_csv=create_case_csv_bytes,
+        create_excel=create_case_excel_bytes,
+        key_prefix="case",
+    )
 
     if total_count == 0:
         st.info("登録されている案件はありません。")
@@ -98,6 +105,7 @@ def render_case_list():
     )
 
     st.divider()
+    render_section("詳細")
     case_ids = [item["case_id"] for item in cases]
     selected_id = st.selectbox(
         "詳細表示する案件",
@@ -109,41 +117,3 @@ def render_case_list():
     target_id = (direct_id or "").strip() or selected_id
     if target_id:
         render_case_detail(target_id)
-
-
-def _show_export_buttons(cases):
-    disabled = len(cases) == 0
-    now = datetime.now()
-    csv_bytes = b""
-    excel_bytes = b""
-    if not disabled:
-        try:
-            csv_bytes = create_case_csv_bytes(cases)
-        except Exception:
-            st.error("CSVの作成に失敗しました。")
-            csv_bytes = None
-        try:
-            excel_bytes = create_case_excel_bytes(cases)
-        except Exception:
-            st.error("Excelの作成に失敗しました。")
-            excel_bytes = None
-
-    col1, col2 = st.columns(2)
-    with col1:
-        st.download_button(
-            "CSVダウンロード",
-            data=csv_bytes or b"",
-            file_name=generate_export_filename("cases", "csv", now=now),
-            mime="text/csv",
-            disabled=disabled or csv_bytes is None,
-            key="case_csv_download",
-        )
-    with col2:
-        st.download_button(
-            "Excelダウンロード",
-            data=excel_bytes or b"",
-            file_name=generate_export_filename("cases", "xlsx", now=now),
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            disabled=disabled or excel_bytes is None,
-            key="case_excel_download",
-        )

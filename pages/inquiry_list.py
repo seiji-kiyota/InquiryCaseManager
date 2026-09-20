@@ -1,17 +1,12 @@
 """問い合わせ一覧・検索画面。"""
 
-from datetime import datetime
-
 import streamlit as st
 
-from common.export_service import (
-    create_inquiry_csv_bytes,
-    create_inquiry_excel_bytes,
-    generate_export_filename,
-)
+from common.export_service import create_inquiry_csv_bytes, create_inquiry_excel_bytes
 from common.inquiry_service import count_inquiries, search_inquiries
 from common.models import ASSIGNEES, CATEGORIES, INQUIRY_STATUSES, PRIORITIES
 from pages.inquiry_detail import render_inquiry_detail
+from pages.ui import overdue_label, render_export_buttons, render_page_header, render_section
 
 FILTER_VERSION_KEY = "inquiry_list_filter_version"
 
@@ -41,19 +36,23 @@ def _to_display_rows(inquiries):
             "担当者": item["assignee"],
             "ステータス": item["status"],
             "対応期限": item["due_date"] or "",
-            "期限超過": "期限超過" if item["overdue"] else "",
+            "期限超過": overdue_label(item["overdue"]),
         }
         for item in inquiries
     ]
 
 
 def render_inquiry_list():
-    st.subheader("問い合わせ一覧")
+    render_page_header(
+        "問い合わせ一覧",
+        "検索・絞り込み結果を一覧表示します。詳細表示やCSV / Excel出力ができます。",
+    )
 
     if FILTER_VERSION_KEY not in st.session_state:
         st.session_state[FILTER_VERSION_KEY] = 0
 
     prefix = f"inquiry_list_{st.session_state[FILTER_VERSION_KEY]}_"
+    render_section("検索条件")
     col1, col2, col3 = st.columns(3)
     with col1:
         keyword = st.text_input("フリーワード", key=f"{prefix}keyword")
@@ -94,8 +93,16 @@ def render_inquiry_list():
     inquiries = search_inquiries(filters)
     total_count = count_inquiries()
 
-    st.write(f"検索結果：{len(inquiries)}件")
-    _show_export_buttons(inquiries)
+    st.divider()
+    render_section("検索結果")
+    st.write(f"検索結果：{len(inquiries)}件（登録件数：{total_count}件）")
+    render_export_buttons(
+        inquiries,
+        prefix="inquiries",
+        create_csv=create_inquiry_csv_bytes,
+        create_excel=create_inquiry_excel_bytes,
+        key_prefix="inquiry",
+    )
 
     if total_count == 0:
         st.info("登録されている問い合わせはありません。")
@@ -113,6 +120,7 @@ def render_inquiry_list():
     )
 
     st.divider()
+    render_section("詳細")
     inquiry_ids = [item["inquiry_id"] for item in inquiries]
     selected_id = st.selectbox(
         "詳細表示する問い合わせ",
@@ -124,41 +132,3 @@ def render_inquiry_list():
     target_id = (direct_id or "").strip() or selected_id
     if target_id:
         render_inquiry_detail(target_id)
-
-
-def _show_export_buttons(inquiries):
-    disabled = len(inquiries) == 0
-    now = datetime.now()
-    csv_bytes = b""
-    excel_bytes = b""
-    if not disabled:
-        try:
-            csv_bytes = create_inquiry_csv_bytes(inquiries)
-        except Exception:
-            st.error("CSVの作成に失敗しました。")
-            csv_bytes = None
-        try:
-            excel_bytes = create_inquiry_excel_bytes(inquiries)
-        except Exception:
-            st.error("Excelの作成に失敗しました。")
-            excel_bytes = None
-
-    col1, col2 = st.columns(2)
-    with col1:
-        st.download_button(
-            "CSVダウンロード",
-            data=csv_bytes or b"",
-            file_name=generate_export_filename("inquiries", "csv", now=now),
-            mime="text/csv",
-            disabled=disabled or csv_bytes is None,
-            key="inquiry_csv_download",
-        )
-    with col2:
-        st.download_button(
-            "Excelダウンロード",
-            data=excel_bytes or b"",
-            file_name=generate_export_filename("inquiries", "xlsx", now=now),
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            disabled=disabled or excel_bytes is None,
-            key="inquiry_excel_download",
-        )
