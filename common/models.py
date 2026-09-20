@@ -7,3 +7,5 @@ CHANNELS = ("電話", "メール", "Web", "来店", "その他")
 CATEGORIES = ("商品", "契約", "修理", "クレーム", "要望", "その他")
 ACTION_TYPES = ("電話", "メール", "訪問", "社内確認", "その他")
 TARGET_TYPES = ("問い合わせ", "案件")
+ASSIGNEES = ("未割当", "山田", "佐藤", "鈴木")
+UNASSIGNED_ASSIGNEE = "未割当"

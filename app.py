@@ -1,6 +1,7 @@
 import streamlit as st
 
 from common.db import init_db
+from pages.inquiry_register import render_inquiry_register
 
 st.set_page_config(page_title="問い合わせ・案件管理ツール", layout="wide")
 
@@ -19,5 +20,9 @@ st.sidebar.title("メニュー")
 selected_menu = st.sidebar.radio("画面選択", MENU_ITEMS)
 
 st.title("問い合わせ・案件管理ツール")
-st.subheader(selected_menu)
-st.info("この機能は今後実装予定です")
+
+if selected_menu == "問い合わせ登録":
+    render_inquiry_register()
+else:
+    st.subheader(selected_menu)
+    st.info("この機能は今後実装予定です")
