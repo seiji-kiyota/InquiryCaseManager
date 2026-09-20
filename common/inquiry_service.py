@@ -3,6 +3,7 @@
 from datetime import date, datetime, time
 
 from common.db import get_connection
+from common.history_service import create_status_change_history
 from common.models import UNASSIGNED_ASSIGNEE
 from common.validators import parse_date, validate_inquiry
 
@@ -263,8 +264,10 @@ def update_inquiry(inquiry_id, data, db_path=None, now=None):
     if errors:
         raise ValueError("\n".join(errors))
 
-    timestamp = (now or datetime.now()).strftime("%Y-%m-%d %H:%M:%S")
+    timestamp_dt = now or datetime.now()
+    timestamp = timestamp_dt.strftime("%Y-%m-%d %H:%M:%S")
     assignee = _text(payload.get("assignee")) or UNASSIGNED_ASSIGNEE
+    new_status = _text(payload.get("status"))
 
     conn = get_connection(db_path)
     try:
@@ -300,12 +303,22 @@ def update_inquiry(inquiry_id, data, db_path=None, now=None):
                 _text(payload.get("priority")),
                 assignee,
                 _date_text(payload.get("due_date")),
-                _text(payload.get("status")),
+                new_status,
                 _text(payload.get("notes")),
                 timestamp,
                 existing["inquiry_id"],
             ),
         )
+        if existing["status"] != new_status:
+            create_status_change_history(
+                existing["inquiry_id"],
+                existing["status"],
+                new_status,
+                assignee,
+                action_datetime=timestamp_dt,
+                conn=conn,
+                now=timestamp_dt,
+            )
         conn.commit()
     except Exception:
         conn.rollback()
