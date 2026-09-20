@@ -1,0 +1,23 @@
+import streamlit as st
+
+from common.db import init_db
+
+st.set_page_config(page_title="問い合わせ・案件管理ツール", layout="wide")
+
+init_db()
+
+MENU_ITEMS = (
+    "ダッシュボード",
+    "問い合わせ登録",
+    "問い合わせ一覧",
+    "案件一覧",
+    "集計・分析",
+    "設定",
+)
+
+st.sidebar.title("メニュー")
+selected_menu = st.sidebar.radio("画面選択", MENU_ITEMS)
+
+st.title("問い合わせ・案件管理ツール")
+st.subheader(selected_menu)
+st.info("この機能は今後実装予定です")
