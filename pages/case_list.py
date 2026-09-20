@@ -1,8 +1,15 @@
 """案件一覧・検索画面。"""
 
+from datetime import datetime
+
 import streamlit as st
 
 from common.case_service import count_cases, search_cases
+from common.export_service import (
+    create_case_csv_bytes,
+    create_case_excel_bytes,
+    generate_export_filename,
+)
 from common.models import ASSIGNEES, CASE_STATUSES, PRIORITIES
 from pages.case_detail import render_case_detail
 
@@ -73,6 +80,7 @@ def render_case_list():
     total_count = count_cases()
 
     st.write(f"検索結果：{len(cases)}件")
+    _show_export_buttons(cases)
 
     if total_count == 0:
         st.info("登録されている案件はありません。")
@@ -101,3 +109,41 @@ def render_case_list():
     target_id = (direct_id or "").strip() or selected_id
     if target_id:
         render_case_detail(target_id)
+
+
+def _show_export_buttons(cases):
+    disabled = len(cases) == 0
+    now = datetime.now()
+    csv_bytes = b""
+    excel_bytes = b""
+    if not disabled:
+        try:
+            csv_bytes = create_case_csv_bytes(cases)
+        except Exception:
+            st.error("CSVの作成に失敗しました。")
+            csv_bytes = None
+        try:
+            excel_bytes = create_case_excel_bytes(cases)
+        except Exception:
+            st.error("Excelの作成に失敗しました。")
+            excel_bytes = None
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.download_button(
+            "CSVダウンロード",
+            data=csv_bytes or b"",
+            file_name=generate_export_filename("cases", "csv", now=now),
+            mime="text/csv",
+            disabled=disabled or csv_bytes is None,
+            key="case_csv_download",
+        )
+    with col2:
+        st.download_button(
+            "Excelダウンロード",
+            data=excel_bytes or b"",
+            file_name=generate_export_filename("cases", "xlsx", now=now),
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            disabled=disabled or excel_bytes is None,
+            key="case_excel_download",
+        )

@@ -1,7 +1,14 @@
 """問い合わせ一覧・検索画面。"""
 
+from datetime import datetime
+
 import streamlit as st
 
+from common.export_service import (
+    create_inquiry_csv_bytes,
+    create_inquiry_excel_bytes,
+    generate_export_filename,
+)
 from common.inquiry_service import count_inquiries, search_inquiries
 from common.models import ASSIGNEES, CATEGORIES, INQUIRY_STATUSES, PRIORITIES
 from pages.inquiry_detail import render_inquiry_detail
@@ -88,6 +95,7 @@ def render_inquiry_list():
     total_count = count_inquiries()
 
     st.write(f"検索結果：{len(inquiries)}件")
+    _show_export_buttons(inquiries)
 
     if total_count == 0:
         st.info("登録されている問い合わせはありません。")
@@ -116,3 +124,41 @@ def render_inquiry_list():
     target_id = (direct_id or "").strip() or selected_id
     if target_id:
         render_inquiry_detail(target_id)
+
+
+def _show_export_buttons(inquiries):
+    disabled = len(inquiries) == 0
+    now = datetime.now()
+    csv_bytes = b""
+    excel_bytes = b""
+    if not disabled:
+        try:
+            csv_bytes = create_inquiry_csv_bytes(inquiries)
+        except Exception:
+            st.error("CSVの作成に失敗しました。")
+            csv_bytes = None
+        try:
+            excel_bytes = create_inquiry_excel_bytes(inquiries)
+        except Exception:
+            st.error("Excelの作成に失敗しました。")
+            excel_bytes = None
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.download_button(
+            "CSVダウンロード",
+            data=csv_bytes or b"",
+            file_name=generate_export_filename("inquiries", "csv", now=now),
+            mime="text/csv",
+            disabled=disabled or csv_bytes is None,
+            key="inquiry_csv_download",
+        )
+    with col2:
+        st.download_button(
+            "Excelダウンロード",
+            data=excel_bytes or b"",
+            file_name=generate_export_filename("inquiries", "xlsx", now=now),
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            disabled=disabled or excel_bytes is None,
+            key="inquiry_excel_download",
+        )
